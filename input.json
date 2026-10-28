@@ -1,0 +1,52 @@
+[
+    {
+        "vehicle_id": "B1234XYZ",
+        "lat": -6.193497,
+        "long": 106.823088
+    },
+    {
+        "vehicle_id": "B4563FGC",
+        "lat": -6.193785,
+        "long": 106.823242
+    },
+    {
+        "vehicle_id": "B8293USY",
+        "lat": -6.192976,
+        "long": 106.823016
+    },
+    {
+        "vehicle_id": "B9938TYR",
+        "lat": -6.193605,
+        "long": 106.823784
+    },
+    {
+        "vehicle_id": "B2322UUT",
+        "lat": -6.194503,
+        "long": 106.823287
+    },
+    {
+        "vehicle_id": "B4434POW",
+        "lat": -6.193201,
+        "long": 106.822203
+    },
+    {
+        "vehicle_id": "B9912WXT",
+        "lat": -6.194683,
+        "long": 106.822474
+    },
+    {
+        "vehicle_id": "B9772KEU",
+        "lat": -6.192258,
+        "long": 106.823377
+    },
+    {
+        "vehicle_id": "B8223PJR",
+        "lat": -6.193605,
+        "long": 106.82139
+    },
+    {
+        "vehicle_id": "B9910KOL",
+        "lat": -6.191808,
+        "long": 106.82392
+    }
+]
