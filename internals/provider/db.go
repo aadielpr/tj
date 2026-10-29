@@ -12,7 +12,8 @@ type DB struct {
 	Pool *pgxpool.Pool
 }
 
-func (db *DB) Init(ctx context.Context, uri string) {
+func (db *DB) Init(uri string) {
+	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, uri)
 	if err != nil {
 		log.Fatalf("Failed to create database pool: %v", err)

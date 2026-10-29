@@ -2,7 +2,6 @@ package util
 
 import "math"
 
-// code ini di generate oleh AI
 func IsWithinRadius(
 	fixlat, fixlong float64,
 	inlat, inlong float64,
@@ -24,7 +23,6 @@ func IsWithinRadius(
 		math.Cos(lat1Rad)*math.Cos(lat2Rad)*
 			math.Sin(dLon/2)*math.Sin(dLon/2)
 
-	// Protect against floating-point rounding errors.
 	a = math.Max(0, math.Min(1, a))
 
 	distance := 2 * earthRadius * math.Asin(math.Sqrt(a))
