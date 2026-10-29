@@ -7,17 +7,15 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
-const CLIENT_ID = "tj-test"
-
 type MQTT struct {
 	Client mqtt.Client
 }
 
-func (mqttx *MQTT) Init(broker string) {
+func (mqttx *MQTT) Init(broker string, clientId string) {
 	opt := mqtt.NewClientOptions()
 	opt.AddBroker(broker)
-	opt.SetClientID(CLIENT_ID)
-	opt.SetAutoReconnect(true)
+	opt.SetClientID(clientId)
+	opt.SetAutoReconnect(false)
 
 	opt.OnConnect = func(c mqtt.Client) {
 		fmt.Println("MQTT connected..")

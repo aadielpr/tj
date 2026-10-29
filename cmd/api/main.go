@@ -25,12 +25,13 @@ func main() {
 
 	db.Init(os.Getenv("PSQL_URI"))
 	defer db.Pool.Close()
+	db.CreateTable()
 
 	rmq.Init(os.Getenv("RABBIT_URI"))
 	defer rmq.Connection.Close()
 	defer rmq.Channel.Close()
 
-	mqttx.Init(os.Getenv("MQTT_URI"))
+	mqttx.Init(os.Getenv("MQTT_URI"), "tj-api")
 	defer mqttx.Client.Disconnect(500)
 
 	messaging := messaging.Init(db.Pool, rmq, mqttx, validator.Validate)

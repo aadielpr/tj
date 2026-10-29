@@ -24,7 +24,7 @@ func main() {
 
 	mqttx := provider.MQTT{}
 
-	mqttx.Init(os.Getenv("MQTT_URI"))
+	mqttx.Init(os.Getenv("MQTT_URI"), "tj-script")
 	defer mqttx.Client.Disconnect(500)
 
 	data, err := os.ReadFile("input.json")
