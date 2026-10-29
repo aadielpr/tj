@@ -8,53 +8,24 @@ import (
 	"os"
 	"strings"
 	"time"
-
-	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"tj/internals/provider"
+	"tj/internals/util"
 )
 
-const BROKER = "mqtt://localhost:1883"
 const TOPIC = "fleet/vehicle/{vehicle_id}/location"
-const CLIENTID = "tj-location-publisher"
-
-type Input struct {
-	VehicleID string  `json:"vehicle_id"`
-	Latitude  float64 `json:"lat"`
-	Longitude float64 `json:"long"`
-}
-
-type Location struct {
-	VehicleID string  `json:"vehicle_id"`
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
-	Timestamp int64   `json:"timestamp"`
-}
 
 func main() {
-	opt := mqtt.NewClientOptions()
-	opt.AddBroker(BROKER)
-	opt.SetClientID(CLIENTID)
-	opt.SetAutoReconnect(true)
+	mqttx := provider.MQTT{}
 
-	opt.OnConnect = func(c mqtt.Client) {
-		fmt.Println("MQTT connected..")
-	}
-	opt.OnConnectionLost = func(c mqtt.Client, err error) {
-		fmt.Printf("MQTT disconnected.. %v \n", err)
-	}
-
-	client := mqtt.NewClient(opt)
-	clientToken := client.Connect()
-	if clientToken.Wait() && clientToken.Error() != nil {
-		panic(clientToken.Error())
-	}
-	defer client.Disconnect(500)
+	mqttx.Init()
+	defer mqttx.Client.Disconnect(500)
 
 	data, err := os.ReadFile("input.json")
 	if err != nil {
 		panic(err)
 	}
 
-	input := []Input{}
+	input := []util.LocationJsonInput{}
 
 	if err := json.Unmarshal(data, &input); err != nil {
 		panic(err)
@@ -63,7 +34,7 @@ func main() {
 	for {
 		idx := rand.Intn(len(input))
 		inp := input[idx]
-		location := Location{
+		location := util.Location{
 			VehicleID: inp.VehicleID,
 			Latitude:  inp.Latitude,
 			Longitude: inp.Longitude,
@@ -76,7 +47,7 @@ func main() {
 		}
 
 		topic := strings.ReplaceAll(TOPIC, "{vehicle_id}", inp.VehicleID)
-		publishToken := client.Publish(topic, 1, false, payload)
+		publishToken := mqttx.Client.Publish(topic, 1, false, payload)
 		if publishToken.Wait() && publishToken.Error() != nil {
 			log.Fatalf("On publish location error: %v", publishToken.Error())
 		}

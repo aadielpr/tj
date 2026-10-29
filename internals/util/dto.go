@@ -31,3 +31,10 @@ type GetVehicleParam struct {
 	Start     int64  `json:"start" validate:"required,unixtimestamp"`
 	End       int64  `json:"end" validate:"required,unixtimestamp"`
 }
+
+type LocationJsonInput struct {
+	VehicleID string  `json:"vehicle_id"`
+	Latitude  float64 `json:"lat"`
+	Longitude float64 `json:"long"`
+}
+
