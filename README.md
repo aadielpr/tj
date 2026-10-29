@@ -6,7 +6,7 @@
     go run cmd/api/main.go
 ```
 
-## Running Dummy Publisher 
+## Running Publisher Script 
 ```sh
     go run cmd/api/main.go
 ```
