@@ -10,14 +10,21 @@ import (
 	"time"
 	"tj/internals/provider"
 	"tj/internals/util"
+
+	"github.com/joho/godotenv"
 )
 
 const TOPIC = "fleet/vehicle/{vehicle_id}/location"
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatalf("Warning: .env file not found")
+	}
+
 	mqttx := provider.MQTT{}
 
-	mqttx.Init()
+	mqttx.Init(os.Getenv("MQTT_URI"))
 	defer mqttx.Client.Disconnect(500)
 
 	data, err := os.ReadFile("input.json")

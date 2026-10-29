@@ -23,8 +23,8 @@ type RabbitMQ struct {
 	Channel    *amqp.Channel
 }
 
-func (rmq *RabbitMQ) Init() {
-	con, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+func (rmq *RabbitMQ) Init(uri string) {
+	con, err := amqp.Dial(uri)
 	if err != nil {
 		log.Fatalf("Failed to connect to rabbitmq: %v", err)
 	}
