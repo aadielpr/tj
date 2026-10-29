@@ -1,0 +1,69 @@
+{
+  "info": {
+    "name": "tj",
+    "description": null,
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "get history vehicle",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "auth": {
+          "type": "noauth"
+        },
+        "description": "",
+        "url": {
+          "raw": "http://localhost:3000/vehicles/B1234XYZ/history?start=1793241273&end=1793243341",
+          "protocol": "http",
+          "host": [
+            "localhost:3000"
+          ],
+          "path": [
+            "vehicles",
+            "B1234XYZ",
+            "history"
+          ],
+          "query": [
+            {
+              "key": "start",
+              "value": "1793241273"
+            },
+            {
+              "key": "end",
+              "value": "1793243341"
+            }
+          ],
+          "variable": []
+        }
+      }
+    },
+    {
+      "name": "get latest vehicle location",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "auth": {
+          "type": "noauth"
+        },
+        "description": "",
+        "url": {
+          "raw": "http://localhost:8080/vehicles/B1234XYZ/location",
+          "protocol": "http",
+          "host": [
+            "localhost:8080"
+          ],
+          "path": [
+            "vehicles",
+            "B1234XYZ",
+            "location"
+          ],
+          "query": [],
+          "variable": []
+        }
+      }
+    }
+  ],
+  "variable": []
+}
