@@ -3,15 +3,18 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
-	"os/signal"
-	"syscall"
+	"strconv"
+	"tj/internals/provider"
 	"tj/internals/util"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/go-playground/validator/v10"
+	"github.com/gofiber/fiber/v3"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -40,6 +43,12 @@ type Location struct {
 	Timestamp int64   `json:"timestamp" validate:"required,unixtimestamp"`
 }
 
+type GetVehicleParam struct {
+	VehicleID string `json:"vehicle_id" validate:"required,alphanum"`
+	Start     int64  `json:"start" validate:"required,unixtimestamp"`
+	End       int64  `json:"end" validate:"required,unixtimestamp"`
+}
+
 type Area struct {
 	ID        int     `json:"ID"`
 	AreaName  string  `json:"area_name"`
@@ -56,63 +65,34 @@ type GeofenceEventMessage struct {
 
 func main() {
 	ctx := context.Background()
-	validate := validator.New()
 
+	app := fiber.New()
+	validate := validator.New()
 	err := validate.RegisterValidation("unixtimestamp", validateUnix)
 	if err != nil {
 		log.Fatalf("Failed to create database pool: %v", err)
 		os.Exit(1)
 	}
 
-	dbpool, err := pgxpool.New(context.Background(), "postgres://postgres:postgres@localhost:5432/tj?sslmode=disable")
-	if err != nil {
-		log.Fatalf("Failed to create database pool: %v", err)
-		os.Exit(1)
-	}
-	defer dbpool.Close()
+	db := provider.DB{}
+	rmq := provider.RabbitMQ{}
+	mqttx := provider.MQTT{}
 
-	if err := dbpool.Ping(ctx); err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
-		os.Exit(1)
-	}
-	fmt.Println("Database connected..")
+	db.Init(ctx, "postgres://postgres:postgres@localhost:5432/tj?sslmode=disable")
+	defer db.Pool.Close()
 
-	amqpCon, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
-	if err != nil {
-		log.Fatalf("Failed to connect to rabbitmq: %v", err)
-	}
-	defer amqpCon.Close()
+	rmq.Init()
+	defer rmq.Connection.Close()
+	defer rmq.Channel.Close()
 
-	amqpCh, err := amqpCon.Channel()
-	if err != nil {
-		log.Fatalf("Failed to open rabbitmq channel: %v", err)
-	}
-	defer amqpCh.Close()
-	fmt.Println("RabbitMQ connected..")
+	mqttx.Init(BROKER, CLIENTID)
+	defer mqttx.Client.Disconnect(500)
 
-	opt := mqtt.NewClientOptions()
-	opt.AddBroker(BROKER)
-	opt.SetClientID(CLIENTID)
-	opt.SetAutoReconnect(true)
-
-	opt.OnConnect = func(c mqtt.Client) {
-		fmt.Println("MQTT connected..")
-	}
-	opt.OnConnectionLost = func(c mqtt.Client, err error) {
-		fmt.Printf("MQTT disconnected.. %v \n", err)
-	}
-
-	mqttCon := mqtt.NewClient(opt)
-	clientToken := mqttCon.Connect()
-	if clientToken.Wait() && clientToken.Error() != nil {
-		log.Fatalf("MQTT token error: %v ", clientToken.Error())
-	}
-	defer mqttCon.Disconnect(500)
 
 	lch := make(chan Location, 25)
-	go receiveLocationWorker(ctx, dbpool, lch, amqpCh)
+	go receiveLocationWorker(ctx, db.Pool, lch, rmq.Channel)
 
-	subscribeToken := mqttCon.Subscribe(TOPIC, 1, func(c mqtt.Client, m mqtt.Message) {
+	subscribeToken := mqttx.Client.Subscribe(TOPIC, 1, func(c mqtt.Client, m mqtt.Message) {
 		onReceivedLocation(m, lch, validate)
 	})
 
@@ -121,17 +101,17 @@ func main() {
 	}
 
 	// rabbitmq
-	err = amqpCh.ExchangeDeclare(RABBITMQ_RADIUSCHECKER_EXCHANGE, "direct", false, false, false, false, nil)
+	err = rmq.Channel.ExchangeDeclare(RABBITMQ_RADIUSCHECKER_EXCHANGE, "direct", false, false, false, false, nil)
 	if err != nil {
 		log.Fatalf("Failed to create %v exchange %v", RABBITMQ_RADIUSCHECKER_EXCHANGE, err)
 	}
 
-	err = amqpCh.ExchangeDeclare(RABBITMQ_GEOFENCE_EXCHANGE, "direct", false, false, false, false, nil)
+	err = rmq.Channel.ExchangeDeclare(RABBITMQ_GEOFENCE_EXCHANGE, "direct", false, false, false, false, nil)
 	if err != nil {
 		log.Fatalf("Failed to create %v exchange %v", RABBITMQ_GEOFENCE_EXCHANGE, err)
 	}
 
-	_, err = amqpCh.QueueDeclare(RABBITMQ_GEOFENCE_QUEUE, true, false, false, false,
+	_, err = rmq.Channel.QueueDeclare(RABBITMQ_GEOFENCE_QUEUE, true, false, false, false,
 		amqp.Table{
 			amqp.QueueTypeArg: amqp.QueueTypeQuorum,
 		},
@@ -140,7 +120,7 @@ func main() {
 		log.Fatalf("Failed to create rabbitmq %v queue %v", RABBITMQ_GEOFENCE_QUEUE, err)
 	}
 
-	_, err = amqpCh.QueueDeclare(RABBITMQ_RADIUSCHECKER_QUEUE, true, false, false, false,
+	_, err = rmq.Channel.QueueDeclare(RABBITMQ_RADIUSCHECKER_QUEUE, true, false, false, false,
 		amqp.Table{
 			amqp.QueueTypeArg: amqp.QueueTypeQuorum,
 		},
@@ -149,7 +129,7 @@ func main() {
 		log.Fatalf("Failed to create rabbitmq %v queue %v", RABBITMQ_RADIUSCHECKER_QUEUE, err)
 	}
 
-	err = amqpCh.QueueBind(
+	err = rmq.Channel.QueueBind(
 		RABBITMQ_GEOFENCE_QUEUE,
 		RABBITMQ_GEOFENCE_ROUTE,
 		RABBITMQ_GEOFENCE_EXCHANGE,
@@ -160,7 +140,7 @@ func main() {
 		log.Fatalf("Failed to bind rabbitmq %v queue %v", RABBITMQ_GEOFENCE_QUEUE, err)
 	}
 
-	err = amqpCh.QueueBind(
+	err = rmq.Channel.QueueBind(
 		RABBITMQ_RADIUSCHECKER_QUEUE,
 		RABBITMQ_RADIUSCHECKER_ROUTE,
 		RABBITMQ_RADIUSCHECKER_EXCHANGE,
@@ -171,20 +151,120 @@ func main() {
 		log.Fatalf("Failed to bind rabbitmq %v queue %v", RABBITMQ_RADIUSCHECKER_QUEUE, err)
 	}
 
-	brwCh, err := amqpCh.Consume(RABBITMQ_RADIUSCHECKER_QUEUE, "", true, false, false, false, nil)
-	gfwCh, err := amqpCh.Consume(RABBITMQ_GEOFENCE_QUEUE, "", true, false, false, false, nil)
+	brwCh, err := rmq.Channel.Consume(RABBITMQ_RADIUSCHECKER_QUEUE, "", true, false, false, false, nil)
+	gfwCh, err := rmq.Channel.Consume(RABBITMQ_GEOFENCE_QUEUE, "", true, false, false, false, nil)
 
-	go checkBusRadiusWorker(brwCh, dbpool, ctx, amqpCh)
-	go geofenceAlertWorker(gfwCh, dbpool, ctx)
+	go checkBusRadiusWorker(brwCh, db.Pool, ctx, rmq.Channel)
+	go geofenceAlertWorker(gfwCh, db.Pool, ctx)
 
-	// calculate geofence += 50m
-	// lat +50 - lat -50
-	// long +50 - long -50
+	app.Get("vehicles/:vehicle_id/location", func(c fiber.Ctx) error {
+		vehicleId := c.Params("vehicle_id")
+		err := validate.Var(vehicleId, "required,alphanum")
 
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+		loc := Location{}
+		err = db.Pool.QueryRow(ctx,
+			`	SELECT vehicle_id, latitude, longitude, timestamp FROM vehicle_locations 
+				WHERE vehicle_id = $1
+				ORDER BY timestamp DESC
+				LIMIT 1
+			`, vehicleId).Scan(&loc.VehicleID, &loc.Latitude, &loc.Longitude, &loc.Timestamp)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"ok":         false,
+					"statusCode": fiber.StatusBadRequest,
+					"message":    "Location not found",
+				})
+			}
 
-	<-signals
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"ok":         false,
+				"statusCode": fiber.StatusInternalServerError,
+				"message":    "Internal Server Error",
+			})
+		}
+
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
+			"ok":         true,
+			"statusCode": fiber.StatusOK,
+			"data":       fiber.Map{"location": loc},
+		})
+	})
+
+	app.Get("vehicles/:vehicle_id/history", func(c fiber.Ctx) error {
+		sUnix, err := strconv.ParseInt(c.Query("start"), 10, 64)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"ok":         false,
+				"statusCode": fiber.StatusBadRequest,
+				"message":    "start param is not valid",
+			})
+		}
+
+		eUnix, err := strconv.ParseInt(c.Query("end"), 10, 64)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"ok":         false,
+				"statusCode": fiber.StatusBadRequest,
+				"message":    "end param is not valid",
+			})
+		}
+
+		getVehicleParam := GetVehicleParam{
+			VehicleID: c.Params("vehicle_id"),
+			Start:     sUnix,
+			End:       eUnix,
+		}
+
+		rows, err := db.Pool.Query(ctx,
+			`	SELECT vehicle_id, latitude, longitude, timestamp FROM vehicle_locations 
+				WHERE vehicle_id = $1 AND timestamp >= $2 AND timestamp <= $3
+			`,
+			getVehicleParam.VehicleID, getVehicleParam.Start, getVehicleParam.End)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"ok":         false,
+				"statusCode": fiber.StatusInternalServerError,
+				"message":    "Internal Server Error",
+				"detail":     err.Error(),
+			})
+		}
+		defer rows.Close()
+
+		locations := []Location{}
+
+		for rows.Next() {
+			loc := Location{}
+			err := rows.Scan(&loc.VehicleID, &loc.Latitude, &loc.Longitude, &loc.Timestamp)
+			if err != nil {
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+					"ok":         false,
+					"statusCode": fiber.StatusInternalServerError,
+					"message":    "Internal Server Error",
+					"detail":     err.Error(),
+				})
+			}
+
+			locations = append(locations, loc)
+		}
+
+		if err := rows.Err(); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"ok":         false,
+				"statusCode": fiber.StatusInternalServerError,
+				"message":    "Internal Server Error",
+				"detail":     err.Error(),
+			})
+		}
+
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
+			"ok":         true,
+			"statusCode": fiber.StatusOK,
+			"locations":  locations,
+		})
+	})
+
+	log.Fatal(app.Listen(":3000"))
 }
 
 func checkBusRadiusWorker(msgs <-chan amqp.Delivery, db *pgxpool.Pool, ctx context.Context, amqpCh *amqp.Channel) {
