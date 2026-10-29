@@ -8,6 +8,6 @@
 
 ## Running Publisher Script 
 ```sh
-    go run cmd/api/main.go
+    go run cmd/publisher/main.go
 ```
 
